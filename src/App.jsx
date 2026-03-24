@@ -3,6 +3,7 @@ import Layout from "./components/Layout";
 import Home from "./pages/Home";
 import NotFound from "./pages/NotFound";
 import ToolPlaceholder from "./pages/tools/ToolPlaceholder";
+import LootTableSimulator from "./tools/LootTableSimulator";
 import tools, { getRelatedTools } from "./tools";
 
 export default function App() {
@@ -11,6 +12,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
+          <Route path="tools/loot-table-simulator" element={<LootTableSimulator />} />
           {tools.map((tool) => (
             <Route
               key={tool.path}
