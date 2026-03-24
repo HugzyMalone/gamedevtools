@@ -1,79 +1,50 @@
 import { Link } from "react-router-dom";
-
-const tools = [
-  {
-    icon: "🎲",
-    name: "Loot Table Simulator",
-    path: "/tools/loot-table-simulator",
-    description: "Define items, set drop weights, simulate thousands of drops, and visualise probability distributions.",
-  },
-  {
-    icon: "⚔️",
-    name: "Damage Formula Sandbox",
-    path: "/tools/damage-formula-sandbox",
-    description: "Design and test RPG damage formulas with interactive charts and preset systems.",
-  },
-  {
-    icon: "📈",
-    name: "XP Curve Designer",
-    path: "/tools/xp-curve-designer",
-    description: "Create and visualise levelling curves with live charts. Export as JSON, CSV, or code.",
-  },
-  {
-    icon: "🎨",
-    name: "Pixel Art Palette Generator",
-    path: "/tools/palette-generator",
-    description: "Generate harmonious limited palettes for pixel art. Extract palettes from images.",
-  },
-  {
-    icon: "💡",
-    name: "Game Jam Idea Generator",
-    path: "/tools/game-jam-ideas",
-    description: "Get random combinations of theme, genre, mechanic, and constraint for your next jam.",
-  },
-  {
-    icon: "✂️",
-    name: "Sprite Sheet Slicer",
-    path: "/tools/sprite-sheet-slicer",
-    description: "Upload a sprite sheet, configure the grid, preview frames, and download individual PNGs.",
-  },
-];
+import tools from "../tools";
+import { ArrowRight } from "lucide-react";
 
 export default function Home() {
   return (
-    <div className="max-w-5xl mx-auto">
-      <section className="text-center py-12 mb-8">
-        <h1 className="text-5xl font-bold text-light mb-3">
+    <div>
+      {/* Hero */}
+      <section className="text-center py-16 sm:py-20 mb-8">
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-heading font-black text-light text-glow mb-4 tracking-tight">
           Game Dev Tools
         </h1>
-        <p className="text-xl text-accent font-medium mb-4">
+        <p className="text-lg sm:text-xl text-accent font-medium mb-5">
           Free browser-based tools for indie game developers
         </p>
-        <p className="text-light/60 max-w-2xl mx-auto leading-relaxed">
+        <p className="text-muted max-w-xl mx-auto leading-relaxed text-sm sm:text-base">
           A growing collection of interactive utilities designed to speed up your game development workflow.
           No sign-up, no install — just open and build.
         </p>
       </section>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {tools.map((tool) => (
-          <Link
-            key={tool.path}
-            to={tool.path}
-            className="group block p-6 rounded-xl bg-card border border-white/5 hover:border-accent/50 hover:shadow-lg hover:shadow-accent/10 hover:-translate-y-1 transition-all duration-200"
-          >
-            <span className="text-3xl mb-4 block">{tool.icon}</span>
-            <h2 className="text-lg font-semibold text-light mb-2 group-hover:text-accent transition-colors">
-              {tool.name}
-            </h2>
-            <p className="text-sm text-light/50 mb-4 leading-relaxed">
-              {tool.description}
-            </p>
-            <span className="text-sm font-medium text-accent/80 group-hover:text-accent transition-colors">
-              Launch Tool &rarr;
-            </span>
-          </Link>
-        ))}
+      {/* Tool Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        {tools.map((tool) => {
+          const Icon = tool.icon;
+          return (
+            <Link
+              key={tool.path}
+              to={`/tools/${tool.path}`}
+              className="group relative block p-6 rounded-2xl bg-card border border-white/[0.06] hover:border-accent/40 hover:shadow-glow hover:-translate-y-1 transition-all duration-200 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-dark"
+            >
+              <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center mb-4 group-hover:bg-accent/20 transition-colors duration-200">
+                <Icon className="w-5 h-5 text-accent" aria-hidden="true" />
+              </div>
+              <h2 className="text-base font-heading font-bold text-light mb-2 group-hover:text-accent transition-colors duration-200">
+                {tool.name}
+              </h2>
+              <p className="text-sm text-muted mb-4 leading-relaxed line-clamp-2">
+                {tool.description}
+              </p>
+              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-accent/70 group-hover:text-accent transition-colors duration-200">
+                Launch Tool
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform duration-200" aria-hidden="true" />
+              </span>
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
