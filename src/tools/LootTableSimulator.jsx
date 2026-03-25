@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Plus, X, RotateCcw, Dices, ArrowLeft, ArrowRight,
-  Trash2, Download, CheckCircle2, AlertCircle,
+  Trash2, Download, CheckCircle2, AlertCircle, Loader2, Play,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { getRelatedTools } from "../tools";
@@ -21,6 +21,9 @@ const RARITY_CONFIG = {
   epic:      { label: "Epic",      badge: "bg-accent/10 text-accent border-accent/30",           bar: "rgba(124,58,237,0.8)", dot: "#7C3AED" },
   legendary: { label: "Legendary", badge: "bg-amber-400/10 text-amber-400 border-amber-400/30",  bar: "rgba(251,191,36,0.8)", dot: "#FBBF24" },
 };
+
+const SIM_SNAP_POINTS = [100, 500, 1000, 5000, 10000, 50000, 100000];
+const SIM_CHUNK_SIZE = 10000; // process this many rolls per frame to avoid blocking UI
 
 const DEFAULT_ITEMS = [
   { name: "Gold Coin",     weight: 60, rarity: "common",    minQty: 10, maxQty: 50 },
@@ -108,6 +111,13 @@ export default function LootTableSimulator() {
   const [weightDrafts, setWeightDrafts] = useState({});
   const [weightErrors, setWeightErrors] = useState(new Set());
   const relatedTools = getRelatedTools("loot-table-simulator");
+
+  // ── Simulation state ──────────────────────────────────
+  const [sampleSize, setSampleSize] = useState(10000);
+  const [simResults, setSimResults] = useState(null);
+  const [simRunning, setSimRunning] = useState(false);
+  const [autoRerun, setAutoRerun] = useState(false);
+  const simAbortRef = useRef(false);
 
   // Set page title on mount, restore on unmount
   useEffect(() => {
@@ -219,6 +229,98 @@ export default function LootTableSimulator() {
     const pct = totalWeight > 0 ? (w / totalWeight) * 100 : 0;
     return { rarity, pct };
   }).filter((s) => s.pct > 0);
+
+  // Snap slider value to nearest snap point
+  function snapSampleSize(raw) {
+    let closest = SIM_SNAP_POINTS[0];
+    let minDist = Math.abs(raw - closest);
+    for (const sp of SIM_SNAP_POINTS) {
+      const dist = Math.abs(raw - sp);
+      if (dist < minDist) { closest = sp; minDist = dist; }
+    }
+    return closest;
+  }
+
+  // Monte Carlo simulation — chunked via setTimeout to avoid blocking UI
+  const runSimulation = useCallback(() => {
+    if (items.length === 0 || totalWeight === 0) return;
+    simAbortRef.current = false;
+    setSimRunning(true);
+
+    // Build cumulative weight array for weighted selection
+    const cumWeights = [];
+    let cumSum = 0;
+    for (const item of items) {
+      cumSum += item.weight;
+      cumWeights.push(cumSum);
+    }
+
+    // Results accumulator
+    const hits = new Map();
+    const totalQty = new Map();
+    for (const item of items) {
+      hits.set(item.id, 0);
+      totalQty.set(item.id, 0);
+    }
+
+    let processed = 0;
+    const n = sampleSize;
+
+    function processChunk() {
+      if (simAbortRef.current) { setSimRunning(false); return; }
+
+      const end = Math.min(processed + SIM_CHUNK_SIZE, n);
+      for (let i = processed; i < end; i++) {
+        const roll = Math.random() * totalWeight;
+        // Binary search for the selected item
+        let lo = 0, hi = cumWeights.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (cumWeights[mid] <= roll) lo = mid + 1;
+          else hi = mid;
+        }
+        const selected = items[lo];
+        hits.set(selected.id, hits.get(selected.id) + 1);
+        // Roll random quantity between minQty and maxQty
+        const qty = selected.minQty === selected.maxQty
+          ? selected.minQty
+          : selected.minQty + Math.floor(Math.random() * (selected.maxQty - selected.minQty + 1));
+        totalQty.set(selected.id, totalQty.get(selected.id) + qty);
+      }
+      processed = end;
+
+      if (processed < n) {
+        setTimeout(processChunk, 0);
+      } else {
+        // Build results
+        const results = items.map((item) => ({
+          itemId: item.id,
+          name: item.name,
+          rarity: item.rarity,
+          hits: hits.get(item.id),
+          totalQty: totalQty.get(item.id),
+          actualPct: (hits.get(item.id) / n) * 100,
+          expectedPct: (item.weight / totalWeight) * 100,
+        }));
+        const uniqueHits = results.filter((r) => r.hits > 0).length;
+        setSimResults({ n, uniqueHits, results });
+        setSimRunning(false);
+      }
+    }
+
+    setTimeout(processChunk, 0);
+  }, [items, totalWeight, sampleSize]);
+
+  // Auto-rerun when table changes (if enabled and table is non-empty)
+  useEffect(() => {
+    if (!autoRerun || items.length === 0 || totalWeight === 0) return;
+    // Abort any running sim first
+    simAbortRef.current = true;
+    const timer = setTimeout(() => runSimulation(), 50);
+    return () => { clearTimeout(timer); simAbortRef.current = true; };
+  }, [autoRerun, items, totalWeight, runSimulation]);
+
+  const canRunSim = items.length > 0 && totalWeight > 0 && !simRunning;
 
   return (
     <div className="py-6 sm:py-10">
@@ -660,6 +762,104 @@ export default function LootTableSimulator() {
               </span>
             </div>
           )}
+        </section>
+
+        {/* ── Simulation section ─────────────────────────── */}
+        <section aria-label="Simulation" className="lg:col-span-2 mt-2">
+          <div className="rounded-2xl border border-white/[0.06] bg-card p-5">
+            <h2 className="text-xs font-heading font-bold text-muted uppercase tracking-widest mb-4">
+              Simulation
+            </h2>
+
+            {/* Controls row */}
+            <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-4">
+              {/* Sample size slider */}
+              <div className="flex-1 max-w-md">
+                <label htmlFor="sim-sample-size" className="text-sm text-muted mb-1.5 block">
+                  Sample size:{" "}
+                  <span className="text-light font-medium tabular-nums">
+                    {sampleSize.toLocaleString()}
+                  </span>
+                </label>
+                <input
+                  id="sim-sample-size"
+                  type="range"
+                  min={0}
+                  max={SIM_SNAP_POINTS.length - 1}
+                  step={1}
+                  value={SIM_SNAP_POINTS.indexOf(sampleSize)}
+                  onChange={(e) => setSampleSize(SIM_SNAP_POINTS[Number(e.target.value)])}
+                  className="w-full h-2 rounded-full appearance-none bg-white/[0.06] accent-accent cursor-pointer"
+                  aria-label={`Sample size: ${sampleSize.toLocaleString()}`}
+                />
+                <div className="flex justify-between mt-1">
+                  {SIM_SNAP_POINTS.map((sp) => (
+                    <span
+                      key={sp}
+                      className={`text-[10px] tabular-nums ${sp === sampleSize ? "text-accent font-medium" : "text-muted/40"}`}
+                    >
+                      {sp >= 1000 ? `${sp / 1000}k` : sp}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Run button */}
+              <button
+                onClick={runSimulation}
+                disabled={!canRunSim}
+                className="inline-flex items-center gap-2 px-5 min-h-[44px] text-sm font-medium text-dark bg-accent rounded-xl hover:bg-accent/90 shadow-glow transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none shrink-0"
+                aria-label={simRunning ? "Simulation in progress" : "Run simulation"}
+              >
+                {simRunning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                    Running…
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4" aria-hidden="true" />
+                    Run Simulation
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Auto-rerun checkbox */}
+            <label className="inline-flex items-center gap-2 text-sm text-muted cursor-pointer select-none mb-4">
+              <input
+                type="checkbox"
+                checked={autoRerun}
+                onChange={(e) => setAutoRerun(e.target.checked)}
+                className="w-4 h-4 rounded border-border/50 bg-dark accent-accent cursor-pointer"
+              />
+              Auto-rerun when table changes
+            </label>
+
+            {/* Empty table message */}
+            {items.length === 0 && (
+              <p className="text-sm text-muted/60 italic">
+                Add items to the loot table to run a simulation.
+              </p>
+            )}
+
+            {/* Results summary */}
+            {simResults && !simRunning && (
+              <div className="mt-2 rounded-xl border border-white/[0.06] bg-dark/50 px-4 py-3">
+                <p className="text-sm text-light">
+                  Simulated{" "}
+                  <span className="font-medium text-accent tabular-nums">
+                    {simResults.n.toLocaleString()}
+                  </span>{" "}
+                  drops.{" "}
+                  <span className="font-medium text-tertiary tabular-nums">
+                    {simResults.uniqueHits}
+                  </span>{" "}
+                  unique {simResults.uniqueHits === 1 ? "item" : "items"} hit.
+                </p>
+              </div>
+            )}
+          </div>
         </section>
 
         {/* ── RIGHT — summary panel ──────────────────────── */}

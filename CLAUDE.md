@@ -55,7 +55,7 @@ Use the ui-ux-pro-max skill for all UI/UX work on this project. This includes:
 
 ## Tool: Loot Table Simulator (`src/tools/LootTableSimulator.jsx`)
 
-**Status: Production-ready. Day 3 (Monte Carlo simulation + charts) next.**
+**Status: Day 2 complete. Day 3 (Monte Carlo simulation + charts) in progress.**
 
 ### Data Model Reference — LootItem schema
 
@@ -97,8 +97,27 @@ const RARITY_WEIGHTS = { common: 60, uncommon: 25, rare: 10, epic: 4, legendary:
 - Mobile: 1-col stacked card layout with labelled fields
 - Summary panel: item count, total weight, per-rarity probability bars, tier defaults legend
 
-### Deferred to Day 3
+## Day 3 — Loot Table Simulation (Thu 27 Mar)
 
-- Monte Carlo simulation (run N drops, tally results)
-- Recharts charts (bar/pie probability distribution)
-- CSV + JSON export
+Building: /tools/loot-table-simulator
+
+YESTERDAY (Day 2 — DONE):
+- LootItem data model, add/remove/edit, rarity presets, JSON export
+- File: src/tools/LootTableSimulator.jsx
+
+TODAY'S SCOPE (simulation + charts — builds on Day 2 state):
+- Monte Carlo sim: weighted random selection, configurable N trials
+- Default sample size: 10,000. Slider range: 100 to 100,000
+- Results state: Map of itemId -> { hits, actualPct, expectedPct }
+- Bar chart (Recharts BarChart): expected % vs actual % grouped bars
+- Pie chart (Recharts PieChart): share of drops, rarity-coloured slices
+- Stats summary: total rolls, chi-squared fit indicator, convergence
+- CSV export: name, rarity, weight, expected%, actual%, hits
+- "Run Simulation" button with loading state
+- Auto-rerun option (checkbox to rerun on table changes)
+
+DEFER TO DAY 4: Mobile polish, edge case fixes, final QA
+
+KEEP: All Day 2 functionality unchanged. Add sim below existing UI.
+
+CHARTS: import { BarChart, Bar, PieChart, Pie, ... } from "recharts"
