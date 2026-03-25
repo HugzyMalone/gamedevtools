@@ -369,16 +369,18 @@ export default function LootTableSimulator() {
   }
 
   // Derived stats for the summary panel
-  const simStats = simResults ? (() => {
+  let simStats = null;
+  if (simResults && simResults.results.length > 0) {
     const withHits = simResults.results.filter((r) => r.hits > 0);
-    if (withHits.length === 0) return null;
-    const rarest = withHits.reduce((a, b) =>
-      (RARITIES.indexOf(b.rarity) > RARITIES.indexOf(a.rarity) ? b : a));
-    const mostCommon = withHits.reduce((a, b) => (b.hits > a.hits ? b : a));
-    const largestDev = simResults.results.reduce((a, b) =>
-      Math.abs(b.actualPct - b.expectedPct) > Math.abs(a.actualPct - a.expectedPct) ? b : a);
-    return { rarest, mostCommon, largestDev };
-  })() : null;
+    if (withHits.length > 0) {
+      const rarest = withHits.reduce((a, b) =>
+        RARITIES.indexOf(b.rarity) > RARITIES.indexOf(a.rarity) ? b : a);
+      const mostCommon = withHits.reduce((a, b) => (b.hits > a.hits ? b : a));
+      const largestDev = simResults.results.reduce((a, b) =>
+        Math.abs(b.actualPct - b.expectedPct) > Math.abs(a.actualPct - a.expectedPct) ? b : a);
+      simStats = { rarest, mostCommon, largestDev };
+    }
+  }
 
   return (
     <div className="py-6 sm:py-10">
@@ -982,9 +984,8 @@ export default function LootTableSimulator() {
                           {label}
                         </p>
                         <p
-                          className="text-sm font-medium leading-snug truncate transition-colors duration-300"
+                          className={`text-sm font-medium leading-snug truncate transition-colors duration-300${colorInline ? "" : ` ${color}`}`}
                           style={colorInline ? { color } : undefined}
-                          {...(!colorInline ? { className: `text-sm font-medium leading-snug truncate transition-colors duration-300 ${color}` } : {})}
                         >
                           {value}
                         </p>
@@ -1026,13 +1027,7 @@ export default function LootTableSimulator() {
                           tickLine={false}
                         />
                         <YAxis
-                          domain={[0, (dataMax) => {
-                            // Auto-scale: if all values are below 30%, don't hard-cap at 100
-                            const maxExpected = Math.max(...simResults.results.map((r) => r.expectedPct));
-                            const maxActual = Math.max(...simResults.results.map((r) => r.actualPct));
-                            const cap = Math.max(maxExpected, maxActual, dataMax);
-                            return cap > 30 ? 100 : Math.ceil(cap * 1.2);
-                          }]}
+                          domain={[0, "auto"]}
                           tick={{ fill: "#94A3B8", fontSize: 12 }}
                           axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
                           tickLine={false}
