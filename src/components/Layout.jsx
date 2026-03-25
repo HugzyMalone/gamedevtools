@@ -1,5 +1,4 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { Gamepad2 } from "lucide-react";
 
 export default function Layout() {
   const { pathname } = useLocation();
@@ -14,8 +13,8 @@ export default function Layout() {
             className="flex items-center gap-2.5 text-xl font-heading font-bold text-light hover:text-accent transition-colors duration-200"
             aria-label="gamedevtools.dev home"
           >
-            <Gamepad2 className="w-6 h-6 text-accent" aria-hidden="true" />
-            <span>gamedevtools<span className="text-accent">.dev</span></span>
+            <img src="/gamedevtools-logo.png" alt="" aria-hidden="true" className="h-6 w-auto block" />
+            <span className="leading-none">gamedevtools<span className="text-accent">.dev</span></span>
           </Link>
 
           {!isHome && (

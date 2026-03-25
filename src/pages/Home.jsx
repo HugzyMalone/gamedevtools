@@ -6,11 +6,16 @@ export default function Home() {
   return (
     <div>
       {/* Hero */}
-      <section className="text-center py-16 sm:py-20 mb-8">
-        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-heading font-black text-light text-glow mb-4 tracking-tight">
+      <section className="text-center py-8 sm:py-10 mb-4">
+        <img
+          src="/gamedevtools-logo.png"
+          alt="gamedevtools logo"
+          className="h-16 w-auto mx-auto mb-4"
+        />
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-heading font-black text-light text-glow mb-3 tracking-tight">
           Game Dev Tools
         </h1>
-        <p className="text-lg sm:text-xl text-accent font-medium mb-5">
+        <p className="text-lg sm:text-xl text-accent font-medium mb-3">
           Free browser-based tools for indie game developers
         </p>
         <p className="text-muted max-w-xl mx-auto leading-relaxed text-sm sm:text-base">
