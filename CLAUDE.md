@@ -10,13 +10,14 @@ Built with React + Vite + Tailwind CSS.
 - React Router v6 (client-side routing)
 - Recharts (for tool visualisations)
 - Lucide React (SVG icons)
+- react-helmet-async (SEO / Open Graph meta tags)
 - Deployed on Vercel (static)
 - No nanoid — use `crypto.randomUUID()` for IDs
 
 ## Structure
 
 - `/` — Homepage with tool card grid
-- `/tools/loot-table-simulator` — **BUILT** (`src/tools/LootTableSimulator.jsx`)
+- `/tools/loot-table-simulator` — **COMPLETE** (`src/tools/LootTableSimulator.jsx`)
 - `/tools/damage-formula-sandbox` — placeholder
 - `/tools/xp-curve-designer` — placeholder
 - `/tools/palette-generator` — placeholder
@@ -53,71 +54,40 @@ Use the ui-ux-pro-max skill for all UI/UX work on this project. This includes:
 | Epic      | Purple  | `text-accent`         | 4              |
 | Legendary | Amber   | `text-amber-400`      | 1              |
 
+## SEO / Meta Tags
+
+`react-helmet-async` is installed. `<HelmetProvider>` wraps `<App>` in `main.jsx`.
+Each tool page should include a `<Helmet>` block with: `<title>`, `<meta name="description">`, OG tags, and `<link rel="canonical">`.
+
 ## Tool: Loot Table Simulator (`src/tools/LootTableSimulator.jsx`)
 
-**Status: Day 2 complete. Day 3 (Monte Carlo simulation + charts) in progress.**
+**Status: COMPLETE** (item list, weights, rarity, JSON/CSV export, Monte Carlo sim, Recharts charts, mobile layout, a11y, SEO meta tags)
 
-### Data Model Reference — LootItem schema
-
-The core data structure. Lives in `useState` — no Redux, no Zustand needed.
+### Data Model — LootItem schema
 
 ```js
-const defaultItem = {
+{
   id: crypto.randomUUID(), // unique key for React list
-  name: 'Gold Coin',       // string — item display name
+  name: 'Gold Coin',       // string
   weight: 60,              // positive integer — relative drop weight
   rarity: 'common',        // 'common'|'uncommon'|'rare'|'epic'|'legendary'
   minQty: 1,               // integer >= 1
   maxQty: 1,               // integer >= minQty
 }
 
-// Derived value (not stored — computed on render)
+// Derived (not stored — computed on render)
 const probability = (item.weight / totalWeight * 100).toFixed(2) + '%'
 
 // Rarity weight defaults (auto-filled when rarity changes)
 const RARITY_WEIGHTS = { common: 60, uncommon: 25, rare: 10, epic: 4, legendary: 1 }
 ```
 
-### What's built
+### Features
 
-- `LootItem` shape: `{ id, name, weight (int ≥1), rarity, minQty, maxQty }`
-- 5 default items on load: Gold Coin, Silver Sword, Magic Staff, Dragon Scale, Ancient Relic
-- Inline-editable table: name (text), weight (number), rarity (select), minQty, maxQty
-- Live `%` probability per item (`weight / totalWeight * 100`, 2dp)
-- **Rarity select auto-fills weight** with tier default when rarity changes (`setItemRarity`)
-- Colour-coded rarity badges on select + summary panel
-- Toolbar actions: **+ Add Item**, **Reset to Defaults**, **Clear All** (with inline confirmation — no browser dialog)
-- **5 Load Preset buttons** above the table:
-  - RPG Loot — 8 items, full tier spread
-  - Chest Drop — 4 items (common/uncommon/rare)
-  - Boss Drop — 3 items (rare/epic/legendary)
-  - Currency Drop — 4 commons, varied quantities
-  - Treasure Hoard — 5 items, uncommon → legendary
-- Desktop: 2-col layout (items table + sticky summary sidebar)
-- Mobile: 1-col stacked card layout with labelled fields
-- Summary panel: item count, total weight, per-rarity probability bars, tier defaults legend
-
-## Day 3 — Loot Table Simulation (Thu 27 Mar)
-
-Building: /tools/loot-table-simulator
-
-YESTERDAY (Day 2 — DONE):
-- LootItem data model, add/remove/edit, rarity presets, JSON export
-- File: src/tools/LootTableSimulator.jsx
-
-TODAY'S SCOPE (simulation + charts — builds on Day 2 state):
-- Monte Carlo sim: weighted random selection, configurable N trials
-- Default sample size: 10,000. Slider range: 100 to 100,000
-- Results state: Map of itemId -> { hits, actualPct, expectedPct }
-- Bar chart (Recharts BarChart): expected % vs actual % grouped bars
-- Pie chart (Recharts PieChart): share of drops, rarity-coloured slices
-- Stats summary: total rolls, chi-squared fit indicator, convergence
-- CSV export: name, rarity, weight, expected%, actual%, hits
-- "Run Simulation" button with loading state
-- Auto-rerun option (checkbox to rerun on table changes)
-
-DEFER TO DAY 4: Mobile polish, edge case fixes, final QA
-
-KEEP: All Day 2 functionality unchanged. Add sim below existing UI.
-
-CHARTS: import { BarChart, Bar, PieChart, Pie, ... } from "recharts"
+- Inline-editable table: name, weight, rarity (auto-fills weight), minQty, maxQty
+- Live probability % per item
+- Toolbar: Add Item, Reset to Defaults, Clear All (inline confirmation)
+- 5 presets: RPG Loot, Chest Drop, Boss Drop, Currency Drop, Treasure Hoard
+- Desktop: 2-col layout (table + sticky summary sidebar); Mobile: 1-col card layout
+- Summary panel: item count, total weight, per-rarity probability bars
+- Monte Carlo simulation with Recharts bar + pie charts, JSON + CSV export

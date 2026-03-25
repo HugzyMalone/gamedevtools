@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Helmet } from "react-helmet-async";
 import {
   Plus, X, RotateCcw, Dices, ArrowLeft, ArrowRight,
   Trash2, Download, CheckCircle2, AlertCircle, Loader2, Play,
@@ -115,7 +116,7 @@ function makePreset(preset) {
 }
 
 const INPUT_CLS =
-  "w-full bg-dark border border-border/50 rounded-lg px-2.5 py-1.5 text-sm text-light placeholder-muted/40 focus:outline-none focus:ring-1 focus:ring-ring transition-colors duration-150";
+  "w-full bg-dark border border-border/50 rounded-lg px-2.5 py-1.5 text-sm text-light placeholder-muted/40 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 min-h-[44px]";
 
 export default function LootTableSimulator() {
   const [items, setItems] = useState(makeDefaults);
@@ -130,14 +131,9 @@ export default function LootTableSimulator() {
   const [simRunning, setSimRunning] = useState(false);
   const [autoRerun, setAutoRerun] = useState(false);
   const simAbortRef = useRef(false);
+  const simGenRef = useRef(0); // incremented on each run; stale chunks abort when gen doesn't match
   const chartsRef = useRef(null);
 
-  // Set page title on mount, restore on unmount
-  useEffect(() => {
-    const prev = document.title;
-    document.title = "Loot Table Simulator | Free Drop Rate Tool | Game Dev Tools";
-    return () => { document.title = prev; };
-  }, []);
 
   const totalWeight = items.reduce((sum, item) => sum + (item.weight || 0), 0);
   const totalProb = totalWeight > 0
@@ -258,6 +254,7 @@ export default function LootTableSimulator() {
   const runSimulation = useCallback(() => {
     if (items.length === 0 || totalWeight === 0) return;
     simAbortRef.current = false;
+    const myGen = ++simGenRef.current;
     setSimRunning(true);
 
     // Build cumulative weight array for weighted selection
@@ -280,7 +277,7 @@ export default function LootTableSimulator() {
     const n = sampleSize;
 
     function processChunk() {
-      if (simAbortRef.current) { setSimRunning(false); return; }
+      if (simAbortRef.current || myGen !== simGenRef.current) { setSimRunning(false); return; }
 
       const end = Math.min(processed + SIM_CHUNK_SIZE, n);
       for (let i = processed; i < end; i++) {
@@ -319,6 +316,8 @@ export default function LootTableSimulator() {
           expectedPct: (item.weight / totalWeight) * 100,
         }));
         const uniqueHits = results.filter((r) => r.hits > 0).length;
+        // Guard: discard results if a newer simulation has already started
+        if (myGen !== simGenRef.current) { setSimRunning(false); return; }
         setSimResults({ n, uniqueHits, results });
         setSimRunning(false);
         // Smooth scroll to charts
@@ -336,8 +335,9 @@ export default function LootTableSimulator() {
     if (!autoRerun || items.length === 0 || totalWeight === 0) return;
     // Abort any running sim first
     simAbortRef.current = true;
+    simGenRef.current++;
     const timer = setTimeout(() => runSimulation(), 50);
-    return () => { clearTimeout(timer); simAbortRef.current = true; };
+    return () => { clearTimeout(timer); simAbortRef.current = true; simGenRef.current++; };
   }, [autoRerun, items, totalWeight, runSimulation]);
 
   const canRunSim = items.length > 0 && totalWeight > 0 && !simRunning;
@@ -382,7 +382,45 @@ export default function LootTableSimulator() {
     }
   }
 
+  // Memoised chart data — recomputed only when simResults changes
+  const barChartData = useMemo(
+    () =>
+      simResults?.results.map((r) => ({
+        name: r.name.length > 12 ? r.name.slice(0, 12) + "…" : r.name,
+        fullName: r.name,
+        expected: parseFloat(r.expectedPct.toFixed(2)),
+        actual: parseFloat(r.actualPct.toFixed(2)),
+        hits: r.hits,
+        rarity: r.rarity,
+      })) ?? [],
+    [simResults]
+  );
+
+  const pieChartData = useMemo(
+    () =>
+      simResults?.results.filter((r) => r.hits > 0).map((r) => ({
+        name: r.name,
+        value: parseFloat(r.actualPct.toFixed(2)),
+        hits: r.hits,
+        rarity: r.rarity,
+        fill: RARITY_CHART_COLORS[r.rarity] || RARITY_CHART_COLORS.common,
+      })) ?? [],
+    [simResults]
+  );
+
+  const SEO_DESCRIPTION = 'Free loot table simulator for game devs. Define items and weights, run Monte Carlo simulations, and visualise probability distributions. Export JSON and CSV.';
+
   return (
+    <>
+      <Helmet>
+        <title>Loot Table Simulator – Free Drop Rate Tool | Game Dev Tools</title>
+        <meta name="description" content={SEO_DESCRIPTION} />
+        <meta property="og:title" content="Loot Table Simulator | Game Dev Tools" />
+        <meta property="og:description" content={SEO_DESCRIPTION} />
+        <meta property="og:url" content="https://gamedevtools.dev/tools/loot-table-simulator" />
+        <meta property="og:type" content="website" />
+        <link rel="canonical" href="https://gamedevtools.dev/tools/loot-table-simulator" />
+      </Helmet>
     <div className="py-6 sm:py-10">
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-start gap-4 mb-8">
@@ -437,7 +475,7 @@ export default function LootTableSimulator() {
               <button
                 onClick={exportJSON}
                 disabled={items.length === 0}
-                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-tertiary hover:border-tertiary/40 transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-tertiary hover:border-tertiary/40 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 aria-label="Export loot table as JSON file"
               >
                 <Download className="w-3 h-3" aria-hidden="true" />
@@ -448,7 +486,7 @@ export default function LootTableSimulator() {
               <button
                 onClick={exportCSV}
                 disabled={!simResults}
-                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-tertiary hover:border-tertiary/40 transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-tertiary hover:border-tertiary/40 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 aria-label="Export simulation results as CSV file"
                 title={!simResults ? "Run a simulation first" : "Export simulation results as CSV"}
               >
@@ -477,7 +515,7 @@ export default function LootTableSimulator() {
                 <button
                   onClick={() => setConfirmingClear(true)}
                   disabled={items.length === 0}
-                  className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-secondary hover:border-secondary/40 transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-secondary hover:border-secondary/40 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   aria-label="Clear all items"
                 >
                   <Trash2 className="w-3 h-3" aria-hidden="true" />
@@ -487,7 +525,7 @@ export default function LootTableSimulator() {
 
               <button
                 onClick={resetToDefaults}
-                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-light hover:border-border transition-colors duration-150 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-light hover:border-border focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer"
                 aria-label="Reset to default items"
               >
                 <RotateCcw className="w-3 h-3" aria-hidden="true" />
@@ -496,7 +534,7 @@ export default function LootTableSimulator() {
 
               <button
                 onClick={addItem}
-                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-dark bg-accent rounded-lg hover:bg-accent/90 shadow-glow transition-all duration-150 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-dark bg-accent rounded-lg hover:bg-accent/90 shadow-glow focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all duration-150 cursor-pointer"
                 aria-label="Add new loot item"
               >
                 <Plus className="w-3.5 h-3.5" aria-hidden="true" />
@@ -504,6 +542,9 @@ export default function LootTableSimulator() {
               </button>
             </div>
           </div>
+
+          {/* Scrollable wrapper — prevents layout blowout on narrow tablets with 50+ items */}
+          <div className="overflow-x-auto">
 
           {/* Column headers — desktop only, with Weight tooltip */}
           {items.length > 0 && (
@@ -563,7 +604,7 @@ export default function LootTableSimulator() {
                 </p>
                 <button
                   onClick={addItem}
-                  className="inline-flex items-center gap-2 px-5 min-h-[44px] text-sm font-medium text-dark bg-accent rounded-xl hover:bg-accent/90 shadow-glow transition-all duration-150 cursor-pointer"
+                  className="inline-flex items-center gap-2 px-5 min-h-[44px] text-sm font-medium text-dark bg-accent rounded-xl hover:bg-accent/90 shadow-glow focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all duration-150 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" aria-hidden="true" />
                   Add Your First Item
@@ -645,7 +686,7 @@ export default function LootTableSimulator() {
                     </span>
                     <button
                       onClick={() => removeItem(item.id)}
-                      className="flex items-center justify-center w-8 h-8 rounded-lg text-muted hover:text-secondary hover:bg-secondary/10 transition-colors duration-150 cursor-pointer ml-auto"
+                      className="flex items-center justify-center w-8 h-8 rounded-lg text-muted hover:text-secondary hover:bg-secondary/10 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer ml-auto"
                       aria-label={`Remove ${item.name || "unnamed item"}`}
                     >
                       <X className="w-3.5 h-3.5" aria-hidden="true" />
@@ -691,7 +732,7 @@ export default function LootTableSimulator() {
                       </span>
                       <button
                         onClick={() => removeItem(item.id)}
-                        className="flex items-center justify-center w-11 h-11 rounded-lg text-muted hover:text-secondary hover:bg-secondary/10 transition-colors duration-150 cursor-pointer shrink-0"
+                        className="flex items-center justify-center w-11 h-11 rounded-lg text-muted hover:text-secondary hover:bg-secondary/10 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer shrink-0"
                         aria-label={`Remove ${item.name || "unnamed item"}`}
                       >
                         <X className="w-4 h-4" aria-hidden="true" />
@@ -734,10 +775,10 @@ export default function LootTableSimulator() {
                           <span
                             className="flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-bold text-white shadow-sm"
                             style={{ backgroundColor: dot }}
-                            aria-hidden="true"
                             title={rarityLabel}
                           >
-                            {RARITY_ABBR[item.rarity]}
+                            <span aria-hidden="true">{RARITY_ABBR[item.rarity]}</span>
+                            <span className="sr-only">{rarityLabel}</span>
                           </span>
                           {/* Invisible select overlay — handles interaction and screen reader access */}
                           <select
@@ -799,6 +840,9 @@ export default function LootTableSimulator() {
                 </div>
               );
             })}
+          </div>
+
+          {/* end overflow-x-auto */}
           </div>
 
           {/* ── Summary footer row ─────────────────────────── */}
@@ -880,7 +924,7 @@ export default function LootTableSimulator() {
               <button
                 onClick={runSimulation}
                 disabled={!canRunSim}
-                className="inline-flex items-center gap-2 px-5 min-h-[44px] text-sm font-medium text-dark bg-accent rounded-xl hover:bg-accent/90 shadow-glow transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none shrink-0"
+                className="inline-flex items-center gap-2 px-5 min-h-[44px] text-sm font-medium text-dark bg-accent rounded-xl hover:bg-accent/90 shadow-glow focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none shrink-0"
                 aria-label={simRunning ? "Simulation in progress" : "Run simulation"}
               >
                 {simRunning ? (
@@ -1007,16 +1051,10 @@ export default function LootTableSimulator() {
                     <p className="text-xs font-heading font-bold text-muted uppercase tracking-widest mb-3">
                       Drop Rate Distribution
                     </p>
-                    <ResponsiveContainer width="100%" height={350}>
+                    <div role="img" aria-label="Bar chart: expected vs actual drop rates per item">
+                    <ResponsiveContainer width="100%" height={300}>
                       <BarChart
-                        data={simResults.results.map((r) => ({
-                          name: r.name.length > 12 ? r.name.slice(0, 12) + "…" : r.name,
-                          fullName: r.name,
-                          expected: parseFloat(r.expectedPct.toFixed(2)),
-                          actual: parseFloat(r.actualPct.toFixed(2)),
-                          hits: r.hits,
-                          rarity: r.rarity,
-                        }))}
+                        data={barChartData}
                         margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
@@ -1061,18 +1099,18 @@ export default function LootTableSimulator() {
                           )}
                         />
                         <Bar dataKey="expected" name="expected" radius={[4, 4, 0, 0]}>
-                          {simResults.results.map((r) => (
+                          {barChartData.map((r) => (
                             <Cell
-                              key={r.itemId}
+                              key={r.fullName}
                               fill={RARITY_CHART_COLORS[r.rarity] || RARITY_CHART_COLORS.common}
                               fillOpacity={0.35}
                             />
                           ))}
                         </Bar>
                         <Bar dataKey="actual" name="actual" radius={[4, 4, 0, 0]}>
-                          {simResults.results.map((r) => (
+                          {barChartData.map((r) => (
                             <Cell
-                              key={r.itemId}
+                              key={r.fullName}
                               fill={RARITY_CHART_COLORS[r.rarity] || RARITY_CHART_COLORS.common}
                               fillOpacity={1}
                             />
@@ -1080,6 +1118,7 @@ export default function LootTableSimulator() {
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
+                    </div>
                   </div>
 
                   {/* Pie chart */}
@@ -1087,16 +1126,11 @@ export default function LootTableSimulator() {
                     <p className="text-xs font-heading font-bold text-muted uppercase tracking-widest mb-3">
                       Drop Share Breakdown
                     </p>
-                    <ResponsiveContainer width="100%" height={350}>
+                    <div role="img" aria-label="Pie chart: share of total drops per item">
+                    <ResponsiveContainer width="100%" height={300}>
                       <PieChart>
                         <Pie
-                          data={simResults.results.filter((r) => r.hits > 0).map((r) => ({
-                            name: r.name,
-                            value: parseFloat(r.actualPct.toFixed(2)),
-                            hits: r.hits,
-                            rarity: r.rarity,
-                            fill: RARITY_CHART_COLORS[r.rarity] || RARITY_CHART_COLORS.common,
-                          }))}
+                          data={pieChartData}
                           dataKey="value"
                           nameKey="name"
                           cx="50%"
@@ -1123,9 +1157,9 @@ export default function LootTableSimulator() {
                           }}
                           labelLine={{ stroke: "rgba(148,163,184,0.3)" }}
                         >
-                          {simResults.results.filter((r) => r.hits > 0).map((r) => (
+                          {pieChartData.map((r) => (
                             <Cell
-                              key={r.itemId}
+                              key={r.name}
                               fill={RARITY_CHART_COLORS[r.rarity] || RARITY_CHART_COLORS.common}
                             />
                           ))}
@@ -1153,6 +1187,7 @@ export default function LootTableSimulator() {
                         />
                       </PieChart>
                     </ResponsiveContainer>
+                    </div>
 
                     {/* Custom legend — all items, zero-hit items greyed out */}
                     <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-1 px-1">
@@ -1162,7 +1197,7 @@ export default function LootTableSimulator() {
                         return (
                           <span
                             key={r.itemId}
-                            className="inline-flex items-center gap-1.5 text-xs"
+                            className="inline-flex items-center gap-1.5 text-xs min-w-0 max-w-[160px]"
                             style={{ color: hasHits ? "#94A3B8" : "#4B5563" }}
                           >
                             <span
@@ -1170,7 +1205,7 @@ export default function LootTableSimulator() {
                               style={{ backgroundColor: hasHits ? color : "#374151" }}
                               aria-hidden="true"
                             />
-                            {r.name || "Unnamed"}
+                            <span className="truncate">{r.name || "Unnamed"}</span>
                           </span>
                         );
                       })}
@@ -1318,5 +1353,6 @@ export default function LootTableSimulator() {
         </section>
       )}
     </div>
+    </>
   );
 }
