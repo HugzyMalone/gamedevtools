@@ -1,9 +1,20 @@
 import { Link } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import tools from "../tools";
 import { ArrowRight } from "lucide-react";
 
 export default function Home() {
   return (
+    <>
+      <Helmet>
+        <title>Game Dev Tools – Free Browser-Based Tools for Indie Developers</title>
+        <meta name="description" content="Free browser-based tools for indie game developers. Loot table simulators, damage formula sandboxes, XP curve designers, palette generators, and more. No sign-up required." />
+        <meta property="og:title" content="Game Dev Tools – Free Tools for Indie Developers" />
+        <meta property="og:description" content="Free browser-based tools for indie game developers. No sign-up, no install — just open and build." />
+        <meta property="og:url" content="https://www.gamedevtools.dev/" />
+        <meta property="og:type" content="website" />
+        <link rel="canonical" href="https://www.gamedevtools.dev/" />
+      </Helmet>
     <div>
       {/* Hero */}
       <section className="text-center py-8 sm:py-10 mb-4">
@@ -52,5 +63,6 @@ export default function Home() {
         })}
       </div>
     </div>
+    </>
   );
 }

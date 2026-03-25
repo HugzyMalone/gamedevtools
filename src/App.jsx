@@ -23,6 +23,8 @@ export default function App() {
                 <ToolPlaceholder
                   name={tool.name}
                   icon={tool.icon}
+                  description={tool.description}
+                  path={tool.path}
                   relatedTools={getRelatedTools(tool.path)}
                 />
               }

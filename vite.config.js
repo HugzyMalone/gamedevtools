@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react'
 import sitemap from 'vite-plugin-sitemap'
 
 const routes = [
-  '/',
   '/tools/loot-table-simulator',
   '/tools/damage-formula-sandbox',
   '/tools/xp-curve-designer',

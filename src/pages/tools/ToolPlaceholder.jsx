@@ -1,8 +1,21 @@
 import { Link } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { ArrowLeft, ArrowRight, Construction } from "lucide-react";
 
-export default function ToolPlaceholder({ name, icon: Icon, relatedTools = [] }) {
+export default function ToolPlaceholder({ name, icon: Icon, description = '', path = '', relatedTools = [] }) {
+  const canonicalUrl = `https://www.gamedevtools.dev/tools/${path}`;
+
   return (
+    <>
+      <Helmet>
+        <title>{name} – Coming Soon | Game Dev Tools</title>
+        <meta name="description" content={description} />
+        <meta property="og:title" content={`${name} | Game Dev Tools`} />
+        <meta property="og:description" content={description} />
+        <meta property="og:url" content={canonicalUrl} />
+        <meta property="og:type" content="website" />
+        <link rel="canonical" href={canonicalUrl} />
+      </Helmet>
     <div className="max-w-3xl mx-auto py-8 sm:py-12">
       {/* Tool Header */}
       <div className="flex items-start gap-4 mb-8">
@@ -70,5 +83,6 @@ export default function ToolPlaceholder({ name, icon: Icon, relatedTools = [] })
         </section>
       )}
     </div>
+    </>
   );
 }
