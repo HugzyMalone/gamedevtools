@@ -4,6 +4,10 @@ import {
   Trash2, Download, CheckCircle2, AlertCircle, Loader2, Play,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, Cell, PieChart, Pie,
+} from "recharts";
 import { getRelatedTools } from "../tools";
 
 const RARITIES = ["common", "uncommon", "rare", "epic", "legendary"];
@@ -24,6 +28,14 @@ const RARITY_CONFIG = {
 
 const SIM_SNAP_POINTS = [100, 500, 1000, 5000, 10000, 50000, 100000];
 const SIM_CHUNK_SIZE = 10000; // process this many rolls per frame to avoid blocking UI
+
+const RARITY_CHART_COLORS = {
+  common:    "#64748b",
+  uncommon:  "#10b981",
+  rare:      "#3b82f6",
+  epic:      "#8b5cf6",
+  legendary: "#f59e0b",
+};
 
 const DEFAULT_ITEMS = [
   { name: "Gold Coin",     weight: 60, rarity: "common",    minQty: 10, maxQty: 50 },
@@ -118,11 +130,12 @@ export default function LootTableSimulator() {
   const [simRunning, setSimRunning] = useState(false);
   const [autoRerun, setAutoRerun] = useState(false);
   const simAbortRef = useRef(false);
+  const chartsRef = useRef(null);
 
   // Set page title on mount, restore on unmount
   useEffect(() => {
     const prev = document.title;
-    document.title = "Loot Table Simulator – Free Drop Rate Tool | Game Dev Tools";
+    document.title = "Loot Table Simulator | Free Drop Rate Tool | Game Dev Tools";
     return () => { document.title = prev; };
   }, []);
 
@@ -297,6 +310,9 @@ export default function LootTableSimulator() {
           itemId: item.id,
           name: item.name,
           rarity: item.rarity,
+          weight: item.weight,
+          minQty: item.minQty,
+          maxQty: item.maxQty,
           hits: hits.get(item.id),
           totalQty: totalQty.get(item.id),
           actualPct: (hits.get(item.id) / n) * 100,
@@ -305,6 +321,10 @@ export default function LootTableSimulator() {
         const uniqueHits = results.filter((r) => r.hits > 0).length;
         setSimResults({ n, uniqueHits, results });
         setSimRunning(false);
+        // Smooth scroll to charts
+        requestAnimationFrame(() => {
+          chartsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
       }
     }
 
@@ -321,6 +341,44 @@ export default function LootTableSimulator() {
   }, [autoRerun, items, totalWeight, runSimulation]);
 
   const canRunSim = items.length > 0 && totalWeight > 0 && !simRunning;
+
+  function exportCSV() {
+    if (!simResults) return;
+    const header = ["Name", "Rarity", "Weight", "Expected%", "Actual%", "Hits", "TotalQty", "MinQty", "MaxQty"];
+    const rows = simResults.results.map((r) => [
+      `"${r.name.replace(/"/g, '""')}"`,
+      r.rarity,
+      r.weight,
+      r.expectedPct.toFixed(2),
+      r.actualPct.toFixed(2),
+      r.hits,
+      r.totalQty,
+      r.minQty,
+      r.maxQty,
+    ]);
+    const csv = [header, ...rows].map((r) => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "simulation-results.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // Derived stats for the summary panel
+  const simStats = simResults ? (() => {
+    const withHits = simResults.results.filter((r) => r.hits > 0);
+    if (withHits.length === 0) return null;
+    const rarest = withHits.reduce((a, b) =>
+      (RARITIES.indexOf(b.rarity) > RARITIES.indexOf(a.rarity) ? b : a));
+    const mostCommon = withHits.reduce((a, b) => (b.hits > a.hits ? b : a));
+    const largestDev = simResults.results.reduce((a, b) =>
+      Math.abs(b.actualPct - b.expectedPct) > Math.abs(a.actualPct - a.expectedPct) ? b : a);
+    return { rarest, mostCommon, largestDev };
+  })() : null;
 
   return (
     <div className="py-6 sm:py-10">
@@ -382,6 +440,18 @@ export default function LootTableSimulator() {
               >
                 <Download className="w-3 h-3" aria-hidden="true" />
                 Export JSON
+              </button>
+
+              {/* Export CSV */}
+              <button
+                onClick={exportCSV}
+                disabled={!simResults}
+                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-tertiary hover:border-tertiary/40 transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Export simulation results as CSV file"
+                title={!simResults ? "Run a simulation first" : "Export simulation results as CSV"}
+              >
+                <Download className="w-3 h-3" aria-hidden="true" />
+                Export CSV
               </button>
 
               {/* Clear All — inline confirmation */}
@@ -825,16 +895,24 @@ export default function LootTableSimulator() {
               </button>
             </div>
 
-            {/* Auto-rerun checkbox */}
-            <label className="inline-flex items-center gap-2 text-sm text-muted cursor-pointer select-none mb-4">
-              <input
-                type="checkbox"
-                checked={autoRerun}
-                onChange={(e) => setAutoRerun(e.target.checked)}
-                className="w-4 h-4 rounded border-border/50 bg-dark accent-accent cursor-pointer"
-              />
-              Auto-rerun when table changes
-            </label>
+            {/* Auto-rerun + helpers row */}
+            <div className="flex flex-wrap items-center gap-4 mb-4">
+              <label className="inline-flex items-center gap-2 text-sm text-muted cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoRerun}
+                  onChange={(e) => setAutoRerun(e.target.checked)}
+                  className="w-4 h-4 rounded border-border/50 bg-dark accent-accent cursor-pointer"
+                />
+                Auto-rerun when table changes
+              </label>
+              {sampleSize >= 50000 && (
+                <span className="text-xs text-amber-400/80 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  This may take a moment…
+                </span>
+              )}
+            </div>
 
             {/* Empty table message */}
             {items.length === 0 && (
@@ -843,21 +921,269 @@ export default function LootTableSimulator() {
               </p>
             )}
 
-            {/* Results summary */}
+            {/* Stats summary + charts */}
             {simResults && !simRunning && (
-              <div className="mt-2 rounded-xl border border-white/[0.06] bg-dark/50 px-4 py-3">
-                <p className="text-sm text-light">
-                  Simulated{" "}
-                  <span className="font-medium text-accent tabular-nums">
-                    {simResults.n.toLocaleString()}
-                  </span>{" "}
-                  drops.{" "}
-                  <span className="font-medium text-tertiary tabular-nums">
-                    {simResults.uniqueHits}
-                  </span>{" "}
-                  unique {simResults.uniqueHits === 1 ? "item" : "items"} hit.
-                </p>
-              </div>
+              <>
+                {/* Text summary */}
+                <div className="mt-2 rounded-xl border border-white/[0.06] bg-dark/50 px-4 py-3">
+                  <p className="text-sm text-light">
+                    Simulated{" "}
+                    <span className="font-medium text-accent tabular-nums">
+                      {simResults.n.toLocaleString()}
+                    </span>{" "}
+                    drops.{" "}
+                    <span className="font-medium text-tertiary tabular-nums">
+                      {simResults.uniqueHits}
+                    </span>{" "}
+                    unique {simResults.uniqueHits === 1 ? "item" : "items"} hit.
+                  </p>
+                </div>
+
+                {/* Stats cards */}
+                {simStats && (
+                  <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {[
+                      {
+                        label: "Total Rolls",
+                        value: simResults.n.toLocaleString(),
+                        color: "text-accent",
+                      },
+                      {
+                        label: "Unique Items Hit",
+                        value: `${simResults.uniqueHits} / ${simResults.results.length}`,
+                        color: "text-tertiary",
+                      },
+                      {
+                        label: "Rarest Item Hit",
+                        value: simStats.rarest.name || "—",
+                        sub: `${simStats.rarest.actualPct.toFixed(2)}%`,
+                        color: RARITY_CHART_COLORS[simStats.rarest.rarity] || "text-light",
+                        colorInline: true,
+                      },
+                      {
+                        label: "Most Common Hit",
+                        value: simStats.mostCommon.name || "—",
+                        sub: `${simStats.mostCommon.actualPct.toFixed(2)}%`,
+                        color: RARITY_CHART_COLORS[simStats.mostCommon.rarity] || "text-light",
+                        colorInline: true,
+                      },
+                      {
+                        label: "Largest Deviation",
+                        value: simStats.largestDev.name || "—",
+                        sub: `exp ${simStats.largestDev.expectedPct.toFixed(1)}% vs act ${simStats.largestDev.actualPct.toFixed(1)}%`,
+                        color: "text-secondary",
+                      },
+                    ].map(({ label, value, sub, color, colorInline }) => (
+                      <div
+                        key={label}
+                        className="rounded-xl border border-white/[0.06] bg-dark/60 px-4 py-3 transition-all duration-300"
+                      >
+                        <p className="text-[10px] font-heading font-bold text-muted uppercase tracking-widest mb-1">
+                          {label}
+                        </p>
+                        <p
+                          className="text-sm font-medium leading-snug truncate transition-colors duration-300"
+                          style={colorInline ? { color } : undefined}
+                          {...(!colorInline ? { className: `text-sm font-medium leading-snug truncate transition-colors duration-300 ${color}` } : {})}
+                        >
+                          {value}
+                        </p>
+                        {sub && (
+                          <p className="text-xs text-muted/60 tabular-nums mt-0.5 transition-all duration-300">
+                            {sub}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── Charts: bar + pie side by side ───────────── */}
+                <div className="mt-5 flex flex-col md:flex-row gap-6">
+
+                  {/* Bar chart */}
+                  <div className="flex-1 min-w-0" ref={chartsRef}>
+                    <p className="text-xs font-heading font-bold text-muted uppercase tracking-widest mb-3">
+                      Drop Rate Distribution
+                    </p>
+                    <ResponsiveContainer width="100%" height={350}>
+                      <BarChart
+                        data={simResults.results.map((r) => ({
+                          name: r.name.length > 12 ? r.name.slice(0, 12) + "…" : r.name,
+                          fullName: r.name,
+                          expected: parseFloat(r.expectedPct.toFixed(2)),
+                          actual: parseFloat(r.actualPct.toFixed(2)),
+                          hits: r.hits,
+                          rarity: r.rarity,
+                        }))}
+                        margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fill: "#94A3B8", fontSize: 12 }}
+                          axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          domain={[0, (dataMax) => {
+                            // Auto-scale: if all values are below 30%, don't hard-cap at 100
+                            const maxExpected = Math.max(...simResults.results.map((r) => r.expectedPct));
+                            const maxActual = Math.max(...simResults.results.map((r) => r.actualPct));
+                            const cap = Math.max(maxExpected, maxActual, dataMax);
+                            return cap > 30 ? 100 : Math.ceil(cap * 1.2);
+                          }]}
+                          tick={{ fill: "#94A3B8", fontSize: 12 }}
+                          axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                          tickLine={false}
+                          tickFormatter={(v) => `${v}%`}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "#1E1C35",
+                            border: "1px solid rgba(255,255,255,0.1)",
+                            borderRadius: "12px",
+                            fontSize: "13px",
+                          }}
+                          labelStyle={{ color: "#E2E8F0", fontWeight: 600, marginBottom: 4 }}
+                          itemStyle={{ padding: 0 }}
+                          formatter={(value, dataKey) => [
+                            `${value}%`,
+                            dataKey === "expected" ? "Expected" : "Actual",
+                          ]}
+                          labelFormatter={(_, payload) => {
+                            if (!payload?.[0]) return "";
+                            const d = payload[0].payload;
+                            return `${d.fullName} — ${d.hits.toLocaleString()} hits`;
+                          }}
+                          cursor={{ fill: "rgba(124,58,237,0.08)" }}
+                        />
+                        <Legend
+                          formatter={(value) => (
+                            <span style={{ color: "#94A3B8", fontSize: 12 }}>
+                              {value === "expected" ? "Expected" : "Actual"}
+                            </span>
+                          )}
+                        />
+                        <Bar dataKey="expected" name="expected" radius={[4, 4, 0, 0]}>
+                          {simResults.results.map((r) => (
+                            <Cell
+                              key={r.itemId}
+                              fill={RARITY_CHART_COLORS[r.rarity] || RARITY_CHART_COLORS.common}
+                              fillOpacity={0.35}
+                            />
+                          ))}
+                        </Bar>
+                        <Bar dataKey="actual" name="actual" radius={[4, 4, 0, 0]}>
+                          {simResults.results.map((r) => (
+                            <Cell
+                              key={r.itemId}
+                              fill={RARITY_CHART_COLORS[r.rarity] || RARITY_CHART_COLORS.common}
+                              fillOpacity={1}
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Pie chart */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-heading font-bold text-muted uppercase tracking-widest mb-3">
+                      Drop Share Breakdown
+                    </p>
+                    <ResponsiveContainer width="100%" height={350}>
+                      <PieChart>
+                        <Pie
+                          data={simResults.results.filter((r) => r.hits > 0).map((r) => ({
+                            name: r.name,
+                            value: parseFloat(r.actualPct.toFixed(2)),
+                            hits: r.hits,
+                            rarity: r.rarity,
+                            fill: RARITY_CHART_COLORS[r.rarity] || RARITY_CHART_COLORS.common,
+                          }))}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={110}
+                          isAnimationActive={true}
+                          animationBegin={0}
+                          animationDuration={600}
+                          label={({ name, value, cx, x, y, midAngle }) => {
+                            if (value < 3) return null;
+                            const label = name.length > 10 ? name.slice(0, 10) + "…" : name;
+                            return (
+                              <text
+                                x={x}
+                                y={y}
+                                fill="#94A3B8"
+                                textAnchor={x > cx ? "start" : "end"}
+                                dominantBaseline="central"
+                                fontSize={11}
+                              >
+                                {label} {value}%
+                              </text>
+                            );
+                          }}
+                          labelLine={{ stroke: "rgba(148,163,184,0.3)" }}
+                        >
+                          {simResults.results.filter((r) => r.hits > 0).map((r) => (
+                            <Cell
+                              key={r.itemId}
+                              fill={RARITY_CHART_COLORS[r.rarity] || RARITY_CHART_COLORS.common}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "#1E1C35",
+                            border: "1px solid rgba(255,255,255,0.1)",
+                            borderRadius: "12px",
+                            fontSize: "13px",
+                          }}
+                          formatter={(value, name, entry) => {
+                            const d = entry.payload;
+                            return [
+                              <span key="v" style={{ color: "#E2E8F0" }}>
+                                {d.hits.toLocaleString()} drops ({value}%)
+                                <br />
+                                <span style={{ color: "#94A3B8", fontSize: 11, textTransform: "capitalize" }}>
+                                  {d.rarity}
+                                </span>
+                              </span>,
+                              name,
+                            ];
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+
+                    {/* Custom legend — all items, zero-hit items greyed out */}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-1 px-1">
+                      {simResults.results.map((r) => {
+                        const color = RARITY_CHART_COLORS[r.rarity] || RARITY_CHART_COLORS.common;
+                        const hasHits = r.hits > 0;
+                        return (
+                          <span
+                            key={r.itemId}
+                            className="inline-flex items-center gap-1.5 text-xs"
+                            style={{ color: hasHits ? "#94A3B8" : "#4B5563" }}
+                          >
+                            <span
+                              className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+                              style={{ backgroundColor: hasHits ? color : "#374151" }}
+                              aria-hidden="true"
+                            />
+                            {r.name || "Unnamed"}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                </div>
+              </>
             )}
           </div>
         </section>
