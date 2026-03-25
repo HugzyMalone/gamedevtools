@@ -420,6 +420,16 @@ export default function LootTableSimulator() {
         <meta property="og:url" content="https://gamedevtools.dev/tools/loot-table-simulator" />
         <meta property="og:type" content="website" />
         <link rel="canonical" href="https://gamedevtools.dev/tools/loot-table-simulator" />
+        <script type="application/ld+json">{JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "WebApplication",
+          "name": "Loot Table Simulator",
+          "url": "https://www.gamedevtools.dev/tools/loot-table-simulator",
+          "description": SEO_DESCRIPTION,
+          "applicationCategory": "DeveloperApplication",
+          "operatingSystem": "Any",
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        })}</script>
       </Helmet>
     <div className="py-6 sm:py-10">
       {/* ── Header ─────────────────────────────────────────── */}
