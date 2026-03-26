@@ -3,6 +3,7 @@ import { Helmet } from "react-helmet-async";
 import {
   Plus, X, RotateCcw, Dices, ArrowLeft, ArrowRight,
   Trash2, Download, CheckCircle2, AlertCircle, Loader2, Play,
+  Copy, Undo2, Redo2, Code2, Check,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
@@ -115,6 +116,106 @@ function makePreset(preset) {
   }));
 }
 
+// ── Code generation helpers ───────────────────────────
+function generateCSharp(items, totalWeight) {
+  const rows = items.map((i) =>
+    `        new LootItem { Name = "${i.name.replace(/"/g, '\\"')}", Weight = ${i.weight}, Rarity = "${RARITY_CONFIG[i.rarity].label}", MinQty = ${i.minQty}, MaxQty = ${i.maxQty} },`
+  ).join("\n");
+  return `using System;
+using System.Linq;
+
+public static class LootTable
+{
+    public struct LootItem
+    {
+        public string Name;
+        public int Weight;
+        public string Rarity;
+        public int MinQty;
+        public int MaxQty;
+    }
+
+    public static readonly LootItem[] Items = new LootItem[]
+    {
+${rows}
+    };
+
+    private static readonly Random _rng = new Random();
+
+    public static LootItem Roll()
+    {
+        int total = Items.Sum(i => i.Weight); // ${totalWeight}
+        int roll = _rng.Next(total);
+        int cumulative = 0;
+        foreach (var item in Items)
+        {
+            cumulative += item.Weight;
+            if (roll < cumulative) return item;
+        }
+        return Items[Items.Length - 1];
+    }
+}`;
+}
+
+function generateGDScript(items, totalWeight) {
+  const rows = items.map((i) =>
+    `    { "name": "${i.name.replace(/"/g, '\\"')}", "weight": ${i.weight}, "rarity": "${i.rarity}", "min_qty": ${i.minQty}, "max_qty": ${i.maxQty} },`
+  ).join("\n");
+  return `var loot_table := [
+${rows}
+]
+
+func roll_loot() -> Dictionary:
+    var total_weight := 0 # ${totalWeight}
+    for item in loot_table:
+        total_weight += item["weight"]
+    var roll := randi() % total_weight
+    var cumulative := 0
+    for item in loot_table:
+        cumulative += item["weight"]
+        if roll < cumulative:
+            var qty : int = item["min_qty"]
+            if item["max_qty"] > item["min_qty"]:
+                qty += randi() % (item["max_qty"] - item["min_qty"] + 1)
+            return { "item": item, "qty": qty }
+    return { "item": loot_table[-1], "qty": loot_table[-1]["min_qty"] }`;
+}
+
+function generateLua(items, totalWeight) {
+  const rows = items.map((i) =>
+    `    { name = "${i.name.replace(/"/g, '\\"')}", weight = ${i.weight}, rarity = "${i.rarity}", min_qty = ${i.minQty}, max_qty = ${i.maxQty} },`
+  ).join("\n");
+  return `local loot_table = {
+${rows}
+}
+
+function roll_loot()
+    local total_weight = 0 -- ${totalWeight}
+    for _, item in ipairs(loot_table) do
+        total_weight = total_weight + item.weight
+    end
+    local roll = math.random(total_weight)
+    local cumulative = 0
+    for _, item in ipairs(loot_table) do
+        cumulative = cumulative + item.weight
+        if roll <= cumulative then
+            local qty = item.min_qty
+            if item.max_qty > item.min_qty then
+                qty = qty + math.random(0, item.max_qty - item.min_qty)
+            end
+            return { item = item, qty = qty }
+        end
+    end
+    return { item = loot_table[#loot_table], qty = loot_table[#loot_table].min_qty }
+end`;
+}
+
+const CODE_LANGUAGES = [
+  { id: "csharp", label: "C#", ext: "cs", gen: generateCSharp },
+  { id: "gdscript", label: "GDScript", ext: "gd", gen: generateGDScript },
+  { id: "lua", label: "Lua", ext: "lua", gen: generateLua },
+];
+
 const INPUT_CLS =
   "w-full bg-dark border border-border/50 rounded-lg px-2.5 py-1.5 text-sm text-light placeholder-muted/40 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 min-h-[44px]";
 
@@ -134,6 +235,86 @@ export default function LootTableSimulator() {
   const simGenRef = useRef(0); // incremented on each run; stale chunks abort when gen doesn't match
   const chartsRef = useRef(null);
 
+  // ── Undo / Redo ──────────────────────────────────────
+  const historyRef = useRef({ past: [], future: [] });
+  const canUndo = historyRef.current.past.length > 0;
+  const canRedo = historyRef.current.future.length > 0;
+
+  function saveSnapshot() {
+    historyRef.current.past.push(structuredClone(items));
+    historyRef.current.future = [];
+    if (historyRef.current.past.length > 50) historyRef.current.past.shift();
+  }
+
+  function undo() {
+    const { past, future } = historyRef.current;
+    if (past.length === 0) return;
+    future.push(structuredClone(items));
+    setItems(past.pop());
+    setWeightDrafts({});
+    setWeightErrors(new Set());
+  }
+
+  function redo() {
+    const { past, future } = historyRef.current;
+    if (future.length === 0) return;
+    past.push(structuredClone(items));
+    setItems(future.pop());
+    setWeightDrafts({});
+    setWeightErrors(new Set());
+  }
+
+  // ── Code export ──────────────────────────────────────
+  const [showCodeMenu, setShowCodeMenu] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(null); // language id or null
+  const codeMenuRef = useRef(null);
+
+  function copyAsCode(lang) {
+    const { gen } = CODE_LANGUAGES.find((l) => l.id === lang);
+    const code = gen(items, totalWeight);
+    navigator.clipboard.writeText(code).then(() => {
+      setCodeCopied(lang);
+      setTimeout(() => setCodeCopied(null), 1500);
+    });
+    setShowCodeMenu(false);
+  }
+
+  // Close code menu on outside click
+  useEffect(() => {
+    if (!showCodeMenu) return;
+    function handleClick(e) {
+      if (codeMenuRef.current && !codeMenuRef.current.contains(e.target)) setShowCodeMenu(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showCodeMenu]);
+
+  // ── Keyboard shortcuts ───────────────────────────────
+  useEffect(() => {
+    function handleKeyDown(e) {
+      // Ctrl+Enter — add item
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        saveSnapshot();
+        setItems((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), name: "", weight: RARITY_WEIGHTS.common, rarity: "common", minQty: 1, maxQty: 1 },
+        ]);
+      }
+      // Ctrl+Z — undo
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      // Ctrl+Shift+Z — redo
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) {
+        e.preventDefault();
+        redo();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
 
   const totalWeight = items.reduce((sum, item) => sum + (item.weight || 0), 0);
   const totalProb = totalWeight > 0
@@ -142,13 +323,27 @@ export default function LootTableSimulator() {
   const probVerified = totalWeight > 0 && Math.abs(totalProb - 100) < 0.01;
 
   function addItem() {
+    saveSnapshot();
     setItems((prev) => [
       ...prev,
       { id: crypto.randomUUID(), name: "", weight: RARITY_WEIGHTS.common, rarity: "common", minQty: 1, maxQty: 1 },
     ]);
   }
 
+  function duplicateItem(id) {
+    saveSnapshot();
+    setItems((prev) => {
+      const idx = prev.findIndex((i) => i.id === id);
+      if (idx === -1) return prev;
+      const clone = { ...prev[idx], id: crypto.randomUUID() };
+      const next = [...prev];
+      next.splice(idx + 1, 0, clone);
+      return next;
+    });
+  }
+
   function removeItem(id) {
+    saveSnapshot();
     setItems((prev) => prev.filter((item) => item.id !== id));
     setWeightDrafts((prev) => { const { [id]: _, ...rest } = prev; return rest; });
     setWeightErrors((prev) => { const s = new Set(prev); s.delete(id); return s; });
@@ -162,6 +357,7 @@ export default function LootTableSimulator() {
 
   // Selecting a rarity auto-fills weight with the tier default and clears any weight error
   function setItemRarity(id, rarity) {
+    saveSnapshot();
     setItems((prev) =>
       prev.map((item) =>
         item.id === id ? { ...item, rarity, weight: RARITY_WEIGHTS[rarity] } : item
@@ -193,6 +389,7 @@ export default function LootTableSimulator() {
   }
 
   function clearAll() {
+    saveSnapshot();
     setItems([]);
     setConfirmingClear(false);
     setWeightDrafts({});
@@ -200,6 +397,7 @@ export default function LootTableSimulator() {
   }
 
   function resetToDefaults() {
+    saveSnapshot();
     setItems(makeDefaults());
     setConfirmingClear(false);
     setWeightDrafts({});
@@ -207,6 +405,7 @@ export default function LootTableSimulator() {
   }
 
   function loadPreset(preset) {
+    saveSnapshot();
     setItems(makePreset(preset));
     setWeightDrafts({});
     setWeightErrors(new Set());
@@ -481,6 +680,66 @@ export default function LootTableSimulator() {
             </h2>
             <div className="flex items-center gap-2 flex-wrap">
 
+              {/* Undo */}
+              <button
+                onClick={undo}
+                disabled={!canUndo}
+                className="inline-flex items-center justify-center w-[44px] min-h-[44px] text-muted border border-border/50 rounded-lg hover:text-light hover:border-border focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Undo (Ctrl+Z)"
+                title="Undo (Ctrl+Z)"
+              >
+                <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+
+              {/* Redo */}
+              <button
+                onClick={redo}
+                disabled={!canRedo}
+                className="inline-flex items-center justify-center w-[44px] min-h-[44px] text-muted border border-border/50 rounded-lg hover:text-light hover:border-border focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Redo (Ctrl+Shift+Z)"
+                title="Redo (Ctrl+Shift+Z)"
+              >
+                <Redo2 className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+
+              {/* Divider */}
+              <span className="hidden sm:block w-px h-5 bg-border/30" aria-hidden="true" />
+
+              {/* Copy as Code — dropdown */}
+              <div className="relative" ref={codeMenuRef}>
+                <button
+                  onClick={() => setShowCodeMenu((p) => !p)}
+                  disabled={items.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-accent hover:border-accent/40 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label="Copy loot table as game code"
+                  aria-expanded={showCodeMenu}
+                >
+                  {codeCopied ? (
+                    <Check className="w-3 h-3 text-tertiary" aria-hidden="true" />
+                  ) : (
+                    <Code2 className="w-3 h-3" aria-hidden="true" />
+                  )}
+                  {codeCopied ? "Copied!" : "Copy as Code"}
+                </button>
+                {showCodeMenu && (
+                  <div className="absolute top-full left-0 mt-1.5 w-40 bg-card border border-white/[0.08] rounded-xl shadow-xl z-30 overflow-hidden">
+                    {CODE_LANGUAGES.map((lang) => (
+                      <button
+                        key={lang.id}
+                        onClick={() => copyAsCode(lang.id)}
+                        className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs text-muted hover:text-light hover:bg-accent/10 transition-colors duration-150 cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3 shrink-0" aria-hidden="true" />
+                        {lang.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Divider */}
+              <span className="hidden sm:block w-px h-5 bg-border/30" aria-hidden="true" />
+
               {/* Export JSON */}
               <button
                 onClick={exportJSON}
@@ -545,10 +804,12 @@ export default function LootTableSimulator() {
               <button
                 onClick={addItem}
                 className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-dark bg-accent rounded-lg hover:bg-accent/90 shadow-glow focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all duration-150 cursor-pointer"
-                aria-label="Add new loot item"
+                aria-label="Add new loot item (Ctrl+Enter)"
+                title="Add item (Ctrl+Enter)"
               >
                 <Plus className="w-3.5 h-3.5" aria-hidden="true" />
                 Add Item
+                <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded bg-dark/30 text-[10px] font-mono text-dark/70 ml-0.5">Ctrl+Enter</kbd>
               </button>
             </div>
           </div>
@@ -560,7 +821,7 @@ export default function LootTableSimulator() {
           {items.length > 0 && (
             <div
               className="hidden md:grid gap-2 px-3 mb-2"
-              style={{ gridTemplateColumns: "1fr 72px 148px 64px 64px 60px 40px" }}
+              style={{ gridTemplateColumns: "1fr 72px 148px 64px 64px 60px 76px" }}
             >
               {/* Name */}
               <span className="text-xs font-medium text-muted/50 uppercase tracking-wider">Name</span>
@@ -637,7 +898,7 @@ export default function LootTableSimulator() {
                   {/* ── Desktop row ───────────────────────────── */}
                   <div
                     className="hidden md:grid gap-2 items-center"
-                    style={{ gridTemplateColumns: "1fr 72px 148px 64px 64px 60px 40px" }}
+                    style={{ gridTemplateColumns: "1fr 72px 148px 64px 64px 60px 76px" }}
                   >
                     <input
                       id={`name-${item.id}`}
@@ -694,13 +955,23 @@ export default function LootTableSimulator() {
                     >
                       {pct.toFixed(2)}%
                     </span>
-                    <button
-                      onClick={() => removeItem(item.id)}
-                      className="flex items-center justify-center w-8 h-8 rounded-lg text-muted hover:text-secondary hover:bg-secondary/10 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer ml-auto"
-                      aria-label={`Remove ${item.name || "unnamed item"}`}
-                    >
-                      <X className="w-3.5 h-3.5" aria-hidden="true" />
-                    </button>
+                    <div className="flex items-center gap-0.5 ml-auto">
+                      <button
+                        onClick={() => duplicateItem(item.id)}
+                        className="flex items-center justify-center w-8 h-8 rounded-lg text-muted hover:text-accent hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer"
+                        aria-label={`Duplicate ${item.name || "unnamed item"}`}
+                        title="Duplicate item"
+                      >
+                        <Copy className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                      <button
+                        onClick={() => removeItem(item.id)}
+                        className="flex items-center justify-center w-8 h-8 rounded-lg text-muted hover:text-secondary hover:bg-secondary/10 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer"
+                        aria-label={`Remove ${item.name || "unnamed item"}`}
+                      >
+                        <X className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Desktop validation errors */}
@@ -740,6 +1011,13 @@ export default function LootTableSimulator() {
                       >
                         {pct.toFixed(2)}%
                       </span>
+                      <button
+                        onClick={() => duplicateItem(item.id)}
+                        className="flex items-center justify-center w-11 h-11 rounded-lg text-muted hover:text-accent hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer shrink-0"
+                        aria-label={`Duplicate ${item.name || "unnamed item"}`}
+                      >
+                        <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
                       <button
                         onClick={() => removeItem(item.id)}
                         className="flex items-center justify-center w-11 h-11 rounded-lg text-muted hover:text-secondary hover:bg-secondary/10 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer shrink-0"
