@@ -3,7 +3,7 @@ import { Helmet } from "react-helmet-async";
 import {
   Plus, X, RotateCcw, Dices, ArrowLeft, ArrowRight,
   Trash2, Download, CheckCircle2, AlertCircle, Loader2, Play,
-  Copy, Undo2, Redo2, Code2, Check,
+  Copy, Undo2, Redo2, Code2, Check, Minus, Plus as PlusIcon, ChevronUp, ChevronDown,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
@@ -215,6 +215,51 @@ const CODE_LANGUAGES = [
   { id: "gdscript", label: "GDScript", ext: "gd", gen: generateGDScript },
   { id: "lua", label: "Lua", ext: "lua", gen: generateLua },
 ];
+
+// ── Numeric stepper component ────────────────────────
+function NumericStepper({ value, onType, onStep, onBlur, min = 1, hasError, ariaLabel, ariaInvalid, id, title, className = "" }) {
+  const numVal = parseInt(value, 10);
+  const validNum = Number.isFinite(numVal) ? numVal : min;
+  const canDec = validNum > min;
+
+  return (
+    <div
+      className={`flex items-stretch rounded-lg border ${hasError ? "border-red-500 focus-within:ring-red-500" : "border-border/50 focus-within:ring-ring"} bg-dark overflow-hidden focus-within:ring-2 transition-colors duration-150 min-h-[44px] ${className}`}
+    >
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={() => canDec && onStep(validNum - 1)}
+        disabled={!canDec}
+        className="flex items-center justify-center w-8 shrink-0 text-muted hover:text-light hover:bg-white/[0.06] active:bg-white/[0.1] transition-colors duration-100 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed border-r border-border/30"
+        aria-label={`Decrease ${ariaLabel || "value"}`}
+      >
+        <Minus className="w-3 h-3" aria-hidden="true" />
+      </button>
+      <input
+        id={id}
+        type="number"
+        value={value}
+        min={min}
+        onChange={onType}
+        onBlur={onBlur}
+        aria-label={ariaLabel}
+        aria-invalid={ariaInvalid}
+        title={title}
+        className="no-spinners w-full bg-transparent px-1.5 py-1.5 text-sm text-light text-center tabular-nums focus:outline-none min-w-0"
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={() => onStep(validNum + 1)}
+        className="flex items-center justify-center w-8 shrink-0 text-muted hover:text-light hover:bg-white/[0.06] active:bg-white/[0.1] transition-colors duration-100 cursor-pointer border-l border-border/30"
+        aria-label={`Increase ${ariaLabel || "value"}`}
+      >
+        <PlusIcon className="w-3 h-3" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
 
 const INPUT_CLS =
   "w-full bg-dark border border-border/50 rounded-lg px-2.5 py-1.5 text-sm text-light placeholder-muted/40 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 min-h-[44px]";
@@ -821,7 +866,7 @@ export default function LootTableSimulator() {
           {items.length > 0 && (
             <div
               className="hidden md:grid gap-2 px-3 mb-2"
-              style={{ gridTemplateColumns: "1fr 72px 148px 64px 64px 60px 76px" }}
+              style={{ gridTemplateColumns: "1fr 108px 148px 100px 100px 60px 76px" }}
             >
               {/* Name */}
               <span className="text-xs font-medium text-muted/50 uppercase tracking-wider">Name</span>
@@ -898,7 +943,7 @@ export default function LootTableSimulator() {
                   {/* ── Desktop row ───────────────────────────── */}
                   <div
                     className="hidden md:grid gap-2 items-center"
-                    style={{ gridTemplateColumns: "1fr 72px 148px 64px 64px 60px 76px" }}
+                    style={{ gridTemplateColumns: "1fr 108px 148px 100px 100px 60px 76px" }}
                   >
                     <input
                       id={`name-${item.id}`}
@@ -909,22 +954,21 @@ export default function LootTableSimulator() {
                       aria-label="Item name"
                       className={INPUT_CLS}
                     />
-                    <input
-                      type="number"
+                    <NumericStepper
                       value={weightDrafts[item.id] ?? String(item.weight)}
-                      min={1}
-                      onChange={(e) => handleWeightChange(item.id, e.target.value)}
+                      onType={(e) => handleWeightChange(item.id, e.target.value)}
+                      onStep={(n) => handleWeightChange(item.id, String(n))}
                       onBlur={() => handleWeightBlur(item.id)}
-                      aria-label="Drop weight (higher = more likely to drop)"
-                      aria-invalid={hasWeightError}
-                      className={`${INPUT_CLS} text-center ${hasWeightError ? "!border-red-500 focus:!ring-red-500" : ""}`}
+                      ariaLabel="Drop weight (higher = more likely to drop)"
+                      ariaInvalid={hasWeightError}
+                      hasError={hasWeightError}
                     />
                     {/* Rarity select — colour-coded + text label satisfies non-colour accessibility */}
                     <select
                       value={item.rarity}
                       onChange={(e) => setItemRarity(item.id, e.target.value)}
                       aria-label={`Rarity: ${rarityLabel} (auto-fills weight with tier default)`}
-                      className={`w-full appearance-none bg-dark border rounded-lg px-2.5 py-1.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer transition-colors duration-150 ${badge}`}
+                      className={`w-full appearance-none bg-dark border rounded-lg px-2.5 py-1.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer transition-colors duration-150 min-h-[44px] ${badge}`}
                     >
                       {RARITIES.map((r) => (
                         <option key={r} value={r} className="bg-card text-light">
@@ -932,22 +976,20 @@ export default function LootTableSimulator() {
                         </option>
                       ))}
                     </select>
-                    <input
-                      type="number"
+                    <NumericStepper
                       value={item.minQty}
-                      min={1}
-                      onChange={(e) => updateItem(item.id, "minQty", parsePositiveInt(e.target.value))}
-                      aria-label="Minimum drop quantity"
-                      className={`${INPUT_CLS} text-center ${hasMaxQtyError ? "!border-red-500 focus:!ring-red-500" : ""}`}
+                      onType={(e) => updateItem(item.id, "minQty", parsePositiveInt(e.target.value))}
+                      onStep={(n) => updateItem(item.id, "minQty", n)}
+                      ariaLabel="Minimum drop quantity"
+                      hasError={hasMaxQtyError}
                     />
-                    <input
-                      type="number"
+                    <NumericStepper
                       value={item.maxQty}
-                      min={1}
-                      onChange={(e) => updateItem(item.id, "maxQty", parsePositiveInt(e.target.value))}
-                      aria-label="Maximum drop quantity"
-                      aria-invalid={hasMaxQtyError}
-                      className={`${INPUT_CLS} text-center ${hasMaxQtyError ? "!border-red-500 focus:!ring-red-500" : ""}`}
+                      onType={(e) => updateItem(item.id, "maxQty", parsePositiveInt(e.target.value))}
+                      onStep={(n) => updateItem(item.id, "maxQty", n)}
+                      ariaLabel="Maximum drop quantity"
+                      ariaInvalid={hasMaxQtyError}
+                      hasError={hasMaxQtyError}
                     />
                     <span
                       className="text-sm font-medium text-tertiary tabular-nums text-right"
@@ -1028,7 +1070,7 @@ export default function LootTableSimulator() {
                     </div>
 
                     {/* Row 2: Weight | Rarity dot | Qty (min–max) */}
-                    <div className="grid grid-cols-[80px_52px_1fr] gap-2 items-end">
+                    <div className="grid grid-cols-[112px_52px_1fr] gap-2 items-end">
 
                       {/* Weight */}
                       <div>
@@ -1038,17 +1080,16 @@ export default function LootTableSimulator() {
                         >
                           Weight
                         </label>
-                        <input
+                        <NumericStepper
                           id={`mob-weight-${item.id}`}
-                          type="number"
                           value={weightDrafts[item.id] ?? String(item.weight)}
-                          min={1}
-                          onChange={(e) => handleWeightChange(item.id, e.target.value)}
+                          onType={(e) => handleWeightChange(item.id, e.target.value)}
+                          onStep={(n) => handleWeightChange(item.id, String(n))}
                           onBlur={() => handleWeightBlur(item.id)}
-                          aria-label="Drop weight (higher = more likely to drop)"
-                          aria-invalid={hasWeightError}
+                          ariaLabel="Drop weight (higher = more likely to drop)"
+                          ariaInvalid={hasWeightError}
+                          hasError={hasWeightError}
                           title="Higher weight = more likely to drop. Weights are relative."
-                          className={`${INPUT_CLS} text-center ${hasWeightError ? "!border-red-500 focus:!ring-red-500" : ""}`}
                         />
                       </div>
 
@@ -1095,23 +1136,23 @@ export default function LootTableSimulator() {
                           )}
                         </label>
                         <div className="flex items-center gap-1">
-                          <input
-                            type="number"
+                          <NumericStepper
                             value={item.minQty}
-                            min={1}
-                            onChange={(e) => updateItem(item.id, "minQty", parsePositiveInt(e.target.value))}
-                            aria-label="Minimum drop quantity"
-                            className={`${INPUT_CLS} flex-1 min-w-0 text-center px-1 ${hasMaxQtyError ? "!border-red-500 focus:!ring-red-500" : ""}`}
+                            onType={(e) => updateItem(item.id, "minQty", parsePositiveInt(e.target.value))}
+                            onStep={(n) => updateItem(item.id, "minQty", n)}
+                            ariaLabel="Minimum drop quantity"
+                            hasError={hasMaxQtyError}
+                            className="flex-1 min-w-0"
                           />
-                          <span className="text-muted text-xs shrink-0" aria-hidden="true">–</span>
-                          <input
-                            type="number"
+                          <span className="text-muted text-xs shrink-0" aria-hidden="true">-</span>
+                          <NumericStepper
                             value={item.maxQty}
-                            min={1}
-                            onChange={(e) => updateItem(item.id, "maxQty", parsePositiveInt(e.target.value))}
-                            aria-label="Maximum drop quantity"
-                            aria-invalid={hasMaxQtyError}
-                            className={`${INPUT_CLS} flex-1 min-w-0 text-center px-1 ${hasMaxQtyError ? "!border-red-500 focus:!ring-red-500" : ""}`}
+                            onType={(e) => updateItem(item.id, "maxQty", parsePositiveInt(e.target.value))}
+                            onStep={(n) => updateItem(item.id, "maxQty", n)}
+                            ariaLabel="Maximum drop quantity"
+                            ariaInvalid={hasMaxQtyError}
+                            hasError={hasMaxQtyError}
+                            className="flex-1 min-w-0"
                           />
                         </div>
                       </div>

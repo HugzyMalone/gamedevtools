@@ -15,6 +15,16 @@
   *:focus-visible {
     @apply outline-2 outline-offset-2 outline-accent rounded-sm;
   }
+
+  /* Hide native number input spinners — replaced by custom +/− buttons */
+  input[type="number"].no-spinners::-webkit-inner-spin-button,
+  input[type="number"].no-spinners::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"].no-spinners {
+    -moz-appearance: textfield;
+  }
 }
 
 @layer components {
