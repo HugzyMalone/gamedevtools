@@ -4,6 +4,7 @@ import {
   Plus, X, RotateCcw, Dices, ArrowLeft, ArrowRight,
   Trash2, Download, CheckCircle2, AlertCircle, Loader2, Play,
   Copy, Undo2, Redo2, Code2, Check, Minus, Plus as PlusIcon, ChevronUp, ChevronDown,
+  GripVertical, Upload,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
@@ -264,12 +265,56 @@ function NumericStepper({ value, onType, onStep, onBlur, min = 1, hasError, aria
 const INPUT_CLS =
   "w-full bg-dark border border-border/50 rounded-lg px-2.5 py-1.5 text-sm text-light placeholder-muted/40 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 min-h-[44px]";
 
+const STORAGE_KEY = "lootTableSimulator_items";
+
+function loadSavedItems() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    // Re-generate IDs to avoid stale UUID collisions, validate shape
+    return parsed.map((item) => ({
+      id: crypto.randomUUID(),
+      name: typeof item.name === "string" ? item.name : "",
+      weight: Number.isFinite(item.weight) && item.weight >= 1 ? item.weight : RARITY_WEIGHTS.common,
+      rarity: RARITIES.includes(item.rarity) ? item.rarity : "common",
+      minQty: Number.isFinite(item.minQty) && item.minQty >= 1 ? item.minQty : 1,
+      maxQty: Number.isFinite(item.maxQty) && item.maxQty >= 1 ? item.maxQty : 1,
+    }));
+  } catch {
+    return null;
+  }
+}
+
 export default function LootTableSimulator() {
-  const [items, setItems] = useState(makeDefaults);
+  const [items, setItems] = useState(() => loadSavedItems() || makeDefaults());
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [weightDrafts, setWeightDrafts] = useState({});
   const [weightErrors, setWeightErrors] = useState(new Set());
   const relatedTools = getRelatedTools("loot-table-simulator");
+
+  // ── Import JSON ───────────────────────────────────────
+  const importRef = useRef(null);
+  const [importFeedback, setImportFeedback] = useState(null); // { ok: bool, msg: string } | null
+
+  // ── Single roll ───────────────────────────────────────
+  const [singleRollResult, setSingleRollResult] = useState(null); // { item, qty, key }
+  const [recentRolls, setRecentRolls] = useState([]);
+  const rollKeyRef = useRef(0);
+
+  // ── Drag-to-reorder ───────────────────────────────────
+  const [dragId, setDragId] = useState(null);
+  const [dragOverId, setDragOverId] = useState(null);
+
+  // ── Persist items to localStorage ──────────────────────
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(
+        items.map(({ id, ...rest }) => rest)
+      ));
+    } catch { /* quota exceeded — silently skip */ }
+  }, [items]);
 
   // ── Simulation state ──────────────────────────────────
   const [sampleSize, setSampleSize] = useState(10000);
@@ -612,6 +657,98 @@ export default function LootTableSimulator() {
     URL.revokeObjectURL(url);
   }
 
+  // ── Import JSON ───────────────────────────────────────
+  function handleImportFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          setImportFeedback({ ok: false, msg: "Invalid JSON — expected a non-empty array." });
+          setTimeout(() => setImportFeedback(null), 3500);
+          return;
+        }
+        const validated = parsed.map((item) => ({
+          id: crypto.randomUUID(),
+          name: typeof item.name === "string" ? item.name : "",
+          weight: Number.isFinite(item.weight) && item.weight >= 1 ? Math.round(item.weight) : RARITY_WEIGHTS.common,
+          rarity: RARITIES.includes(item.rarity) ? item.rarity : "common",
+          minQty: Number.isFinite(item.minQty) && item.minQty >= 1 ? Math.round(item.minQty) : 1,
+          maxQty: Number.isFinite(item.maxQty) && item.maxQty >= 1 ? Math.round(item.maxQty) : 1,
+        }));
+        saveSnapshot();
+        setItems(validated);
+        setWeightDrafts({});
+        setWeightErrors(new Set());
+        setImportFeedback({ ok: true, msg: `Imported ${validated.length} item${validated.length === 1 ? "" : "s"}` });
+        setTimeout(() => setImportFeedback(null), 3000);
+      } catch {
+        setImportFeedback({ ok: false, msg: "Could not parse file as JSON." });
+        setTimeout(() => setImportFeedback(null), 3500);
+      }
+      e.target.value = "";
+    };
+    reader.readAsText(file);
+  }
+
+  // ── Single roll ───────────────────────────────────────
+  function rollOnce() {
+    if (items.length === 0 || totalWeight === 0) return;
+    let cumSum = 0;
+    const cumWeights = items.map((item) => { cumSum += item.weight; return cumSum; });
+    const roll = Math.random() * totalWeight;
+    let idx = cumWeights.findIndex((w) => w > roll);
+    if (idx === -1) idx = items.length - 1;
+    const selected = items[idx];
+    const qty = selected.minQty === selected.maxQty
+      ? selected.minQty
+      : selected.minQty + Math.floor(Math.random() * (selected.maxQty - selected.minQty + 1));
+    rollKeyRef.current++;
+    const result = { item: selected, qty, key: rollKeyRef.current };
+    setSingleRollResult(result);
+    setRecentRolls((prev) => [
+      { item: selected, qty, id: crypto.randomUUID() },
+      ...prev.slice(0, 4),
+    ]);
+  }
+
+  // ── Drag-to-reorder ───────────────────────────────────
+  function handleDragStart(id) {
+    setDragId(id);
+  }
+
+  function handleDragOver(e, id) {
+    e.preventDefault();
+    if (id !== dragOverId) setDragOverId(id);
+  }
+
+  function handleDrop(targetId) {
+    if (!dragId || dragId === targetId) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    saveSnapshot();
+    setItems((prev) => {
+      const arr = [...prev];
+      const fromIdx = arr.findIndex((i) => i.id === dragId);
+      const toIdx = arr.findIndex((i) => i.id === targetId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const [removed] = arr.splice(fromIdx, 1);
+      arr.splice(toIdx, 0, removed);
+      return arr;
+    });
+    setDragId(null);
+    setDragOverId(null);
+  }
+
+  function handleDragEnd() {
+    setDragId(null);
+    setDragOverId(null);
+  }
+
   // Derived stats for the summary panel
   let simStats = null;
   if (simResults && simResults.results.length > 0) {
@@ -656,6 +793,13 @@ export default function LootTableSimulator() {
 
   return (
     <>
+      <style>{`
+        @keyframes rollIn {
+          from { opacity: 0; transform: scale(0.94) translateY(-6px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0); }
+        }
+        .roll-in { animation: rollIn 0.22s ease-out forwards; }
+      `}</style>
       <Helmet>
         <title>Loot Table Simulator – Free Drop Rate Tool | Game Dev Tools</title>
         <meta name="description" content={SEO_DESCRIPTION} />
@@ -785,6 +929,25 @@ export default function LootTableSimulator() {
               {/* Divider */}
               <span className="hidden sm:block w-px h-5 bg-border/30" aria-hidden="true" />
 
+              {/* Import JSON */}
+              <input
+                ref={importRef}
+                type="file"
+                accept=".json,application/json"
+                className="sr-only"
+                aria-hidden="true"
+                tabIndex={-1}
+                onChange={handleImportFile}
+              />
+              <button
+                onClick={() => importRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] text-xs font-medium text-muted border border-border/50 rounded-lg hover:text-tertiary hover:border-tertiary/40 focus:outline-none focus:ring-2 focus:ring-ring transition-colors duration-150 cursor-pointer"
+                aria-label="Import loot table from a JSON file"
+              >
+                <Upload className="w-3 h-3" aria-hidden="true" />
+                Import JSON
+              </button>
+
               {/* Export JSON */}
               <button
                 onClick={exportJSON}
@@ -859,6 +1022,21 @@ export default function LootTableSimulator() {
             </div>
           </div>
 
+          {/* Import feedback */}
+          {importFeedback && (
+            <div
+              className={`flex items-center gap-1.5 text-xs mb-3 px-1 ${importFeedback.ok ? "text-tertiary" : "text-secondary"}`}
+              role="status"
+              aria-live="polite"
+            >
+              {importFeedback.ok
+                ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                : <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              }
+              {importFeedback.msg}
+            </div>
+          )}
+
           {/* Scrollable wrapper — prevents layout blowout on narrow tablets with 50+ items */}
           <div className="overflow-x-auto">
 
@@ -866,8 +1044,11 @@ export default function LootTableSimulator() {
           {items.length > 0 && (
             <div
               className="hidden md:grid gap-2 px-3 mb-2"
-              style={{ gridTemplateColumns: "1fr 108px 148px 100px 100px 60px 76px" }}
+              style={{ gridTemplateColumns: "24px 1fr 108px 148px 100px 100px 60px 76px" }}
             >
+              {/* Drag handle — empty header */}
+              <span aria-hidden="true" />
+
               {/* Name */}
               <span className="text-xs font-medium text-muted/50 uppercase tracking-wider">Name</span>
 
@@ -938,13 +1119,34 @@ export default function LootTableSimulator() {
                 <div
                   key={item.id}
                   role="listitem"
-                  className="rounded-xl border border-white/[0.06] bg-card px-3 py-3 hover:border-accent/20 transition-colors duration-150"
+                  draggable
+                  onDragStart={() => handleDragStart(item.id)}
+                  onDragOver={(e) => handleDragOver(e, item.id)}
+                  onDrop={() => handleDrop(item.id)}
+                  onDragEnd={handleDragEnd}
+                  className={`rounded-xl border bg-card px-3 py-3 transition-all duration-150 ${
+                    dragOverId === item.id && dragId !== item.id
+                      ? "border-accent/60 shadow-[0_-2px_0_0_#7C3AED]"
+                      : dragId === item.id
+                        ? "border-white/[0.06] opacity-50"
+                        : "border-white/[0.06] hover:border-accent/20"
+                  }`}
                 >
                   {/* ── Desktop row ───────────────────────────── */}
                   <div
                     className="hidden md:grid gap-2 items-center"
-                    style={{ gridTemplateColumns: "1fr 108px 148px 100px 100px 60px 76px" }}
+                    style={{ gridTemplateColumns: "24px 1fr 108px 148px 100px 100px 60px 76px" }}
                   >
+                    {/* Drag handle */}
+                    <button
+                      type="button"
+                      className="flex items-center justify-center w-6 h-6 text-muted/30 hover:text-muted cursor-grab active:cursor-grabbing focus:outline-none focus:ring-1 focus:ring-ring rounded transition-colors duration-100"
+                      aria-label={`Drag to reorder ${item.name || "item"}`}
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.currentTarget.closest("[draggable]")?.setAttribute("draggable", "true")}
+                    >
+                      <GripVertical className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
                     <input
                       id={`name-${item.id}`}
                       type="text"
@@ -1599,6 +1801,68 @@ export default function LootTableSimulator() {
                 </div>
               </div>
             )}
+
+            {/* ── Roll Once ───────────────────────────── */}
+            <div className="border-t border-white/[0.06] pt-4 mt-4">
+              <p className="text-xs text-muted/50 uppercase tracking-wider mb-3">Single Roll</p>
+              <button
+                onClick={rollOnce}
+                disabled={items.length === 0 || totalWeight === 0}
+                className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-[44px] text-sm font-medium text-dark bg-accent rounded-xl hover:bg-accent/90 shadow-glow focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+                aria-label="Roll the loot table once"
+              >
+                <Dices className="w-4 h-4" aria-hidden="true" />
+                Roll Once
+              </button>
+
+              {singleRollResult && (
+                <div
+                  key={singleRollResult.key}
+                  className="roll-in mt-3 rounded-xl border p-3"
+                  style={{
+                    borderColor: RARITY_CONFIG[singleRollResult.item.rarity].dot + "60",
+                    boxShadow: `0 0 18px ${RARITY_CONFIG[singleRollResult.item.rarity].dot}30`,
+                  }}
+                  aria-live="polite"
+                  aria-label={`Rolled: ${singleRollResult.item.name || "unnamed item"}`}
+                >
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-md border text-xs font-medium ${RARITY_CONFIG[singleRollResult.item.rarity].badge}`}
+                  >
+                    {RARITY_CONFIG[singleRollResult.item.rarity].label}
+                  </span>
+                  <p className="text-sm font-medium text-light mt-1.5 truncate">
+                    {singleRollResult.item.name || "Unnamed"}
+                  </p>
+                  {(singleRollResult.item.maxQty > 1 || singleRollResult.item.minQty > 1) && (
+                    <p className="text-xs text-muted tabular-nums mt-0.5">
+                      Qty: {singleRollResult.qty}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {recentRolls.length > 1 && (
+                <div className="mt-3">
+                  <p className="text-[10px] text-muted/40 uppercase tracking-wider mb-2">Recent</p>
+                  <div className="space-y-1.5">
+                    {recentRolls.slice(1).map((roll) => (
+                      <div key={roll.id} className="flex items-center gap-2 text-xs text-muted/60">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: RARITY_CONFIG[roll.item.rarity].dot }}
+                          aria-hidden="true"
+                        />
+                        <span className="truncate">{roll.item.name || "Unnamed"}</span>
+                        {roll.qty > 1 && (
+                          <span className="ml-auto tabular-nums shrink-0">×{roll.qty}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Rarity legend — both colour dot and text label */}
             <div className="border-t border-white/[0.06] pt-4 mt-4">
